@@ -1,0 +1,53 @@
+{
+  "name": "unused-css-scanner",
+  "version": "1.0.0",
+  "description": "Scan React Native and React files to find unused CSS classes and StyleSheet definitions",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "unused-css-scanner": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "test": "node dist/index.js examples/test-file.tsx",
+    "dev": "ts-node src/index.ts"
+  },
+  "keywords": [
+    "css",
+    "unused",
+    "scanner",
+    "react-native",
+    "stylesheet",
+    "analyzer",
+    "code-quality",
+    "linter"
+  ],
+  "author": "Your Name <your.email@example.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JadhavC07/unused-css-scanner.git"
+  },
+  "bugs": {
+    "url": "https://github.com/JadhavC07/unused-css-scanner/issues"
+  },
+  "homepage": "https://github.com/JadhavC07/unused-css-scanner#readme",
+  "devDependencies": {
+    "@types/node": "^20.19.25",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-native": "^0.82.1"
+  }
+}
