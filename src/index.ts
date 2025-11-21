@@ -292,7 +292,7 @@ class UnusedCSSScanner {
   }
 
   /**
-   * Ask user which folder to scan
+   * Interactive mode: Ask user which folder to scan
    */
   public async interactiveScan(): Promise<void> {
     console.log("\n🔍 Unused CSS Scanner - Interactive Mode\n");

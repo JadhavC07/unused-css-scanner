@@ -15,6 +15,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
   },
+  conwtainer: {
+    flex: 1,
+  },
+  titlew: {
+    fontSize: 20,
+  },
 });
 
 export default TestComponent;

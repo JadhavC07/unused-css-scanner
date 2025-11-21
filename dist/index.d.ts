@@ -56,7 +56,7 @@ declare class UnusedCSSScanner {
      */
     generateReport(results: StyleUsage[]): string;
     /**
-     * Ask user which folder to scan
+     * Interactive mode: Ask user which folder to scan
      */
     interactiveScan(): Promise<void>;
     /**
