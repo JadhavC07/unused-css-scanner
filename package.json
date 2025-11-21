@@ -1,6 +1,6 @@
 {
   "name": "unused-css-scanner",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Scan React Native and React files to find unused CSS classes and StyleSheet definitions",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
