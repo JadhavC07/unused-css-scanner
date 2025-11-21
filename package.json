@@ -23,11 +23,11 @@
     "code-quality",
     "linter"
   ],
-  "author": "Your Name <your.email@example.com>",
+  "author": "Chandan Jadhav cjaddhav@gmail.com",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/JadhavC07/unused-css-scanner.git"
+    "url": "git+https://github.com/JadhavC07/unused-css-scanner.git"
   },
   "bugs": {
     "url": "https://github.com/JadhavC07/unused-css-scanner/issues"
@@ -35,6 +35,8 @@
   "homepage": "https://github.com/JadhavC07/unused-css-scanner#readme",
   "devDependencies": {
     "@types/node": "^20.19.25",
+    "@types/react": "^19.2.6",
+    "@types/react-native": "^0.72.8",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   },
