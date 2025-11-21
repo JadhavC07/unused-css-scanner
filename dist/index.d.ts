@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 interface StyleDefinition {
     name: string;
     startLine: number;
