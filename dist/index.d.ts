@@ -10,16 +10,49 @@ interface StyleUsage {
     usedStyles: string[];
     unusedStyles: StyleDefinition[];
 }
+interface ConfigFile {
+    extensions?: string[];
+    ignore?: string[];
+    autoFix?: boolean;
+    scanOnSave?: boolean;
+    watchFolders?: string[];
+    silent?: boolean;
+}
 interface ScanOptions {
     files?: string[];
     extensions?: string[];
     ignorePatterns?: RegExp[];
     interactive?: boolean;
+    autoFix?: boolean;
+    silent?: boolean;
 }
 declare class UnusedCSSScanner {
     private options;
     private rl;
+    private config;
+    private watchMode;
+    private fileWatchers;
     constructor(options?: ScanOptions);
+    /**
+     * Load configuration from .unused-css-scanner.json
+     */
+    private loadConfig;
+    /**
+     * Create a default config file
+     */
+    createConfigFile(): void;
+    /**
+     * Start watch mode
+     */
+    startWatchMode(): void;
+    /**
+     * Stop watch mode
+     */
+    private stopWatchMode;
+    /**
+     * Handle file change in watch mode
+     */
+    private handleFileChange;
     /**
      * Ask user a question and return the answer
      */
@@ -57,21 +90,13 @@ declare class UnusedCSSScanner {
      */
     generateReport(results: StyleUsage[]): string;
     /**
-     * Interactive mode: Ask user which folder to scan
+     * Interactive mode
      */
     interactiveScan(): Promise<void>;
-    /**
-     * Scan all files at once
-     */
+    private scanSingleFileInteractive;
     private scanAllFiles;
-    /**
-     * Scan files one by one
-     */
     private scanFilesOneByOne;
-    /**
-     * Close readline interface
-     */
     close(): void;
 }
 export default UnusedCSSScanner;
-export { UnusedCSSScanner, StyleUsage, StyleDefinition, ScanOptions };
+export { UnusedCSSScanner, StyleUsage, StyleDefinition, ScanOptions, ConfigFile, };
