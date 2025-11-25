@@ -1,26 +1,29 @@
-import { View, Text, StyleSheet } from "react-native";
+import { View, StyleSheet, Text } from "react-native";
 
 const TestComponent = () => {
+  const styles = StyleSheet.create({
+    container: { flex: 1 },
+    used: { color: "red" },
+    unused: { padding: 10 },
+  });
+
+  // Direct access
+  const view1 = <View style={styles.container} />;
+
+  // Alias pattern
+  const s = styles;
+  const text1 = <Text style={s.used} />;
+
+  // Spread pattern
+  const view2 = <View style={{ ...styles.container }} />;
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Hello World</Text>
+    <View>
+      {view1}
+      {text1}
+      {view2}
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  title: {
-    fontSize: 20,
-  },
-  conwtainer: {
-    flex: 1,
-  },
-  titlew: {
-    fontSize: 20,
-  },
-});
 
 export default TestComponent;

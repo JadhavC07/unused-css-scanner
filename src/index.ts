@@ -2,6 +2,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
+import * as ts from "typescript";
 
 interface StyleDefinition {
   name: string;
@@ -54,66 +55,175 @@ class UnusedCSSScanner {
   }
 
   /**
-   * Extract style names from StyleSheet.create() calls
+   * Get line number from position in source file
    */
-  private extractDefinedStyles(content: string): StyleDefinition[] {
+  private getLineNumber(sourceFile: ts.SourceFile, pos: number): number {
+    const { line } = sourceFile.getLineAndCharacterOfPosition(pos);
+    return line + 1;
+  }
+
+  /**
+   * Extract style names from StyleSheet.create() using AST
+   */
+  private extractDefinedStyles(
+    content: string,
+    filePath: string
+  ): StyleDefinition[] {
     const styles: StyleDefinition[] = [];
-    const lines = content.split("\n");
 
-    // Find StyleSheet.create block - match the entire block
-    const styleSheetRegex = /StyleSheet\.create\s*\(\s*\{([\s\S]*?)\}\s*\)/;
-    const match = content.match(styleSheetRegex);
+    try {
+      // Create TypeScript source file with TSX support
+      const sourceFile = ts.createSourceFile(
+        filePath,
+        content,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TSX
+      );
 
-    if (!match) return styles;
+      // Traverse AST
+      const visit = (node: ts.Node) => {
+        // Look for StyleSheet.create({ ... })
+        if (
+          ts.isCallExpression(node) &&
+          ts.isPropertyAccessExpression(node.expression) &&
+          ts.isIdentifier(node.expression.expression) &&
+          node.expression.expression.text === "StyleSheet" &&
+          ts.isIdentifier(node.expression.name) &&
+          node.expression.name.text === "create"
+        ) {
+          // Get the object literal argument
+          const arg = node.arguments[0];
+          if (arg && ts.isObjectLiteralExpression(arg)) {
+            arg.properties.forEach((prop) => {
+              if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
+                const styleName = prop.name.text;
+                const startLine = this.getLineNumber(
+                  sourceFile,
+                  prop.getStart()
+                );
+                const endLine = this.getLineNumber(sourceFile, prop.getEnd());
 
-    const styleBlock = match[1];
-    const blockStartIndex = match.index! + match[0].indexOf("{") + 1;
+                styles.push({
+                  name: styleName,
+                  startLine,
+                  endLine,
+                });
+              }
+            });
+          }
+        }
 
-    // Split by style definitions - each style ends with },
-    const styleDefinitionRegex = /(\w+)\s*:\s*\{[^}]*\}/g;
-    let styleMatch;
+        ts.forEachChild(node, visit);
+      };
 
-    while ((styleMatch = styleDefinitionRegex.exec(styleBlock)) !== null) {
-      const styleName = styleMatch[1];
-      const styleStartPos = blockStartIndex + styleMatch.index;
-      const styleEndPos = styleStartPos + styleMatch[0].length;
-
-      // Calculate line numbers
-      const startLine = content.substring(0, styleStartPos).split("\n").length;
-      const endLine = content.substring(0, styleEndPos).split("\n").length;
-
-      styles.push({
-        name: styleName,
-        startLine: startLine,
-        endLine: endLine,
-      });
+      visit(sourceFile);
+    } catch (error) {
+      console.error(`⚠️  Error parsing ${filePath}:`, error);
     }
 
     return styles;
   }
 
   /**
-   * Extract used style references from code
+   * Extract used style references using AST
    */
-  private extractUsedStyles(content: string): string[] {
-    const usedStyles: string[] = [];
+  private extractUsedStyles(content: string, filePath: string): string[] {
+    const usedStyles: Set<string> = new Set();
+    const aliases: Set<string> = new Set();
 
-    // Match styles.styleName in any context
-    const directStyleRegex = /styles\.(\w+)/g;
-    let match;
+    try {
+      const sourceFile = ts.createSourceFile(
+        filePath,
+        content,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TSX
+      );
 
-    while ((match = directStyleRegex.exec(content)) !== null) {
-      usedStyles.push(match[1]);
+      // First pass: collect aliases
+      const collectAliases = (node: ts.Node) => {
+        if (
+          ts.isVariableDeclaration(node) &&
+          node.initializer &&
+          ts.isIdentifier(node.initializer) &&
+          node.initializer.text === "styles" &&
+          ts.isIdentifier(node.name)
+        ) {
+          aliases.add(node.name.text);
+        }
+        ts.forEachChild(node, collectAliases);
+      };
+
+      collectAliases(sourceFile);
+
+      // Second pass: find all usages
+      const visit = (node: ts.Node) => {
+        // Pattern 1: styles.styleName or alias.styleName
+        if (
+          ts.isPropertyAccessExpression(node) &&
+          ts.isIdentifier(node.expression) &&
+          ts.isIdentifier(node.name)
+        ) {
+          const objName = node.expression.text;
+          if (objName === "styles" || aliases.has(objName)) {
+            usedStyles.add(node.name.text);
+          }
+        }
+
+        // Pattern 2: styles["styleName"] or alias["styleName"]
+        if (
+          ts.isElementAccessExpression(node) &&
+          ts.isIdentifier(node.expression) &&
+          ts.isStringLiteral(node.argumentExpression)
+        ) {
+          const objName = node.expression.text;
+          if (objName === "styles" || aliases.has(objName)) {
+            usedStyles.add(node.argumentExpression.text);
+          }
+        }
+
+        // Pattern 3: Spread in object literal {...styles.container}
+        if (ts.isSpreadAssignment(node) && node.expression) {
+          if (ts.isPropertyAccessExpression(node.expression)) {
+            const expr = node.expression;
+            if (
+              ts.isIdentifier(expr.expression) &&
+              ts.isIdentifier(expr.name)
+            ) {
+              const objName = expr.expression.text;
+              if (objName === "styles" || aliases.has(objName)) {
+                usedStyles.add(expr.name.text);
+              }
+            }
+          }
+        }
+
+        // Pattern 4: Spread in JSX {...styles.container}
+        if (ts.isJsxSpreadAttribute(node) && node.expression) {
+          if (ts.isPropertyAccessExpression(node.expression)) {
+            const expr = node.expression;
+            if (
+              ts.isIdentifier(expr.expression) &&
+              ts.isIdentifier(expr.name)
+            ) {
+              const objName = expr.expression.text;
+              if (objName === "styles" || aliases.has(objName)) {
+                usedStyles.add(expr.name.text);
+              }
+            }
+          }
+        }
+
+        ts.forEachChild(node, visit);
+      };
+
+      visit(sourceFile);
+    } catch (error) {
+      console.error(`⚠️  Error parsing ${filePath}:`, error);
     }
 
-    // Match className patterns
-    const classNameRegex = /className\s*=\s*["'`]([^"'`]+)["'`]/g;
-    while ((match = classNameRegex.exec(content)) !== null) {
-      const classNames = match[1].split(/\s+/);
-      usedStyles.push(...classNames);
-    }
-
-    return [...new Set(usedStyles)];
+    return Array.from(usedStyles);
   }
 
   /**
@@ -181,8 +291,8 @@ class UnusedCSSScanner {
       return null;
     }
 
-    const definedStyles = this.extractDefinedStyles(content);
-    const usedStyles = this.extractUsedStyles(content);
+    const definedStyles = this.extractDefinedStyles(content, filePath);
+    const usedStyles = this.extractUsedStyles(content, filePath);
     const unusedStyles = definedStyles.filter(
       (style) => !usedStyles.includes(style.name)
     );
@@ -196,50 +306,84 @@ class UnusedCSSScanner {
   }
 
   /**
-   * Remove unused styles from a file
+   * Remove unused styles from a file using AST
    */
   private async removeUnusedStyles(
     filePath: string,
     unusedStyles: StyleDefinition[]
   ): Promise<boolean> {
     try {
-      let content = this.readFile(filePath);
+      const content = this.readFile(filePath);
       if (!content) return false;
 
-      // Find StyleSheet.create block
-      const styleSheetRegex = /StyleSheet\.create\s*\(\s*\{([\s\S]*?)\}\s*\)/;
-      const match = content.match(styleSheetRegex);
+      const sourceFile = ts.createSourceFile(
+        filePath,
+        content,
+        ts.ScriptTarget.Latest,
+        true
+      );
 
-      if (!match) return false;
+      const unusedNames = new Set(unusedStyles.map((s) => s.name));
+      let modifications: Array<{ start: number; end: number }> = [];
 
-      let styleBlock = match[1];
-      const originalStyleBlock = styleBlock;
+      const visit = (node: ts.Node) => {
+        if (
+          ts.isCallExpression(node) &&
+          ts.isPropertyAccessExpression(node.expression) &&
+          ts.isIdentifier(node.expression.expression) &&
+          node.expression.expression.text === "StyleSheet" &&
+          ts.isIdentifier(node.expression.name) &&
+          node.expression.name.text === "create"
+        ) {
+          const arg = node.arguments[0];
+          if (arg && ts.isObjectLiteralExpression(arg)) {
+            arg.properties.forEach((prop) => {
+              if (
+                ts.isPropertyAssignment(prop) &&
+                ts.isIdentifier(prop.name) &&
+                unusedNames.has(prop.name.text)
+              ) {
+                // Mark this property for removal
+                modifications.push({
+                  start: prop.getStart(sourceFile, false),
+                  end: prop.getEnd(),
+                });
+              }
+            });
+          }
+        }
 
-      // Remove each unused style definition
-      for (const unusedStyle of unusedStyles) {
-        // Match the exact style definition with proper escaping
-        const styleNameEscaped = unusedStyle.name.replace(
-          /[.*+?^${}()|[\]\\]/g,
-          "\\$&"
-        );
+        ts.forEachChild(node, visit);
+      };
 
-        // Match style definition including all its content and trailing comma
-        const styleDefRegex = new RegExp(
-          `\\s*${styleNameEscaped}\\s*:\\s*\\{[^}]*\\}\\s*,?\\s*`,
-          "g"
-        );
+      visit(sourceFile);
 
-        styleBlock = styleBlock.replace(styleDefRegex, "");
+      if (modifications.length === 0) return false;
+
+      // Sort modifications in reverse order to maintain positions
+      modifications.sort((a, b) => b.start - a.start);
+
+      let newContent = content;
+      for (const mod of modifications) {
+        // Remove the property and handle trailing comma
+        let start = mod.start;
+        let end = mod.end;
+
+        // Check if there's a comma after this property
+        const afterText = content.substring(end, end + 10);
+        if (afterText.match(/^\s*,/)) {
+          end += afterText.indexOf(",") + 1;
+        } else {
+          // Check if there's a comma before
+          const beforeText = content.substring(Math.max(0, start - 10), start);
+          const commaIndex = beforeText.lastIndexOf(",");
+          if (commaIndex !== -1) {
+            start = start - (beforeText.length - commaIndex);
+          }
+        }
+
+        newContent = newContent.substring(0, start) + newContent.substring(end);
       }
-
-      // Clean up extra commas and whitespace
-      // Remove trailing comma before closing brace
-      styleBlock = styleBlock.replace(/,(\s*$)/g, "$1");
-      // Remove multiple consecutive commas
-      styleBlock = styleBlock.replace(/,\s*,/g, ",");
-
-      // Replace the old style block with the cleaned one
-      const newContent = content.replace(originalStyleBlock, styleBlock);
 
       fs.writeFileSync(filePath, newContent, "utf-8");
       return true;
@@ -299,29 +443,48 @@ class UnusedCSSScanner {
     console.log("\n🔍 Unused CSS Scanner - Interactive Mode\n");
     console.log("═".repeat(60));
 
-    // Ask for folder path
-    const folderPath = await this.askQuestion(
-      "\n📁 Enter the folder path to scan (e.g., src/): "
+    const inputPath = await this.askQuestion(
+      "\n📁 Enter the folder or file path to scan (e.g., src/ or App.tsx): "
     );
 
-    if (!fs.existsSync(folderPath)) {
-      console.log(`\n❌ Folder not found: ${folderPath}`);
+    if (!fs.existsSync(inputPath)) {
+      console.log(`\n❌ Path not found: ${inputPath}`);
       this.rl.close();
       return;
     }
 
-    // Get all files
-    const allFiles = this.getAllFiles(folderPath);
+    const stat = fs.statSync(inputPath);
+    let allFiles: string[] = [];
+
+    if (stat.isFile()) {
+      const ext = path.extname(inputPath);
+      if (this.options.extensions.includes(ext)) {
+        allFiles = [inputPath];
+      } else {
+        console.log(
+          `\n❌ File type not supported. Only .tsx/.jsx/.ts/.js files are supported.`
+        );
+        this.rl.close();
+        return;
+      }
+    } else if (stat.isDirectory()) {
+      allFiles = this.getAllFiles(inputPath);
+    }
 
     if (allFiles.length === 0) {
-      console.log(`\n❌ No .tsx/.jsx/.ts/.js files found in ${folderPath}`);
+      console.log(`\n❌ No .tsx/.jsx/.ts/.js files found in ${inputPath}`);
       this.rl.close();
       return;
     }
 
     console.log(`\n✅ Found ${allFiles.length} file(s)\n`);
 
-    // Ask scan mode
+    if (allFiles.length === 1) {
+      await this.scanSingleFileInteractive(allFiles[0]);
+      this.rl.close();
+      return;
+    }
+
     const scanMode = await this.askQuestion(
       "📋 Scan mode:\n   1) Scan all files at once\n   2) Scan files one by one\n\nChoose (1 or 2): "
     );
@@ -337,9 +500,51 @@ class UnusedCSSScanner {
     this.rl.close();
   }
 
-  /**
-   * Scan all files at once
-   */
+  private async scanSingleFileInteractive(file: string): Promise<void> {
+    console.log(`\n🔍 Scanning ${file}...\n`);
+
+    const result = this.scanFile(file);
+
+    if (!result || result.definedStyles.length === 0) {
+      console.log("   ℹ️  No styles found in this file.\n");
+      return;
+    }
+
+    if (result.unusedStyles.length === 0) {
+      console.log("   ✅ No unused styles! This file is clean.\n");
+      console.log(
+        `   Total Styles: ${result.definedStyles.length} | All Used: ${result.usedStyles.length}\n`
+      );
+      return;
+    }
+
+    console.log(
+      `   Total Defined: ${result.definedStyles.length} | Used: ${result.usedStyles.length} | Unused: ${result.unusedStyles.length}\n`
+    );
+
+    result.unusedStyles.forEach((style) => {
+      console.log(`   ❌ ${style.name}`);
+    });
+
+    const deleteChoice = await this.askQuestion(
+      "\n   🗑️  Delete unused styles from this file? (yes/no): "
+    );
+
+    if (
+      deleteChoice.toLowerCase() === "yes" ||
+      deleteChoice.toLowerCase() === "y"
+    ) {
+      const success = await this.removeUnusedStyles(file, result.unusedStyles);
+      if (success) {
+        console.log(
+          `   ✅ Removed ${result.unusedStyles.length} unused style(s)\n`
+        );
+      }
+    } else {
+      console.log("   ❌ Skipped\n");
+    }
+  }
+
   private async scanAllFiles(files: string[]): Promise<void> {
     console.log("\n🔄 Scanning all files...\n");
 
@@ -355,7 +560,6 @@ class UnusedCSSScanner {
     const report = this.generateReport(results);
     console.log(report);
 
-    // Ask if user wants to delete unused styles
     const hasUnused = results.some((r) => r.unusedStyles.length > 0);
 
     if (hasUnused) {
@@ -390,9 +594,6 @@ class UnusedCSSScanner {
     }
   }
 
-  /**
-   * Scan files one by one
-   */
   private async scanFilesOneByOne(files: string[]): Promise<void> {
     console.log("\n🔄 Scanning files one by one...\n");
 
@@ -445,37 +646,105 @@ class UnusedCSSScanner {
     console.log("\n✅ Scan complete!");
   }
 
-  /**
-   * Close readline interface
-   */
   public close(): void {
     this.rl.close();
   }
 }
 
-// Export for use as a package
 export default UnusedCSSScanner;
 export { UnusedCSSScanner, StyleUsage, StyleDefinition, ScanOptions };
 
 // CLI usage
 if (require.main === module) {
   const args = process.argv.slice(2);
+  const command = args[0];
 
   const scanner = new UnusedCSSScanner({ interactive: true });
 
-  if (args.length === 0) {
-    // Interactive mode
+  const showHelp = () => {
+    console.log(`
+🔍 Unused CSS Scanner - Clean up your React Native StyleSheets
+
+Usage:
+  unused-css-scanner                Start interactive mode
+  unused-css-scanner scan           Start interactive mode
+  unused-css-scanner <file>         Scan a specific file
+  unused-css-scanner <folder>       Scan all files in folder
+  unused-css-scanner help           Show this help message
+  unused-css-scanner --version      Show version
+
+Examples:
+  unused-css-scanner                    # Interactive mode
+  unused-css-scanner scan               # Interactive mode
+  unused-css-scanner src/               # Scan src folder
+  unused-css-scanner App.tsx            # Scan single file
+
+Supported Patterns:
+  ✓ styles.container                   # Direct access
+  ✓ styles["container"]                # Bracket notation
+  ✓ const s = styles; s.container      # Aliasing
+  ✓ {...styles.container}              # Spread operator
+
+Options:
+  --help, -h                            Show help
+  --version, -v                         Show version
+
+📦 Package: unused-css-scanner
+🔗 NPM: https://www.npmjs.com/package/unused-css-scanner
+`);
+  };
+
+  const showVersion = () => {
+    try {
+      const packageJson = JSON.parse(
+        fs.readFileSync(path.join(__dirname, "../package.json"), "utf-8")
+      );
+      console.log(`unused-css-scanner v${packageJson.version}`);
+    } catch {
+      console.log("unused-css-scanner");
+    }
+  };
+
+  if (command === "help" || command === "--help" || command === "-h") {
+    showHelp();
+    process.exit(0);
+  }
+
+  if (command === "--version" || command === "-v") {
+    showVersion();
+    process.exit(0);
+  }
+
+  if (command === "scan" || args.length === 0) {
     scanner.interactiveScan().catch((error) => {
       console.error("Error:", error);
       scanner.close();
       process.exit(1);
     });
   } else {
-    // Direct file scanning
-    const results: StyleUsage[] = [];
+    const target = args[0];
 
-    for (const file of args) {
-      const result = scanner.scanFile(file);
+    if (!fs.existsSync(target)) {
+      console.error(`❌ File or folder not found: ${target}`);
+      process.exit(1);
+    }
+
+    const results: StyleUsage[] = [];
+    const stat = fs.statSync(target);
+
+    if (stat.isDirectory()) {
+      const files = scanner["getAllFiles"](target);
+      console.log(`\n🔍 Scanning ${files.length} files in ${target}...\n`);
+
+      for (const file of files) {
+        const result = scanner.scanFile(file);
+        if (result && result.definedStyles.length > 0) {
+          results.push(result);
+        }
+      }
+    } else {
+      console.log(`\n🔍 Scanning ${target}...\n`);
+      const result = scanner.scanFile(target);
       if (result && result.definedStyles.length > 0) {
         results.push(result);
       }
