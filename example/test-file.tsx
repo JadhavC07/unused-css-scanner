@@ -4,7 +4,8 @@ const TestComponent = () => {
   const styles = StyleSheet.create({
     container: { flex: 1 },
     used: { color: "red" },
-    unused: { padding: 10 },
+    
+    
   });
 
   // Direct access
