@@ -35,9 +35,6 @@
   "homepage": "https://github.com/JadhavC07/unused-css-scanner#readme",
   "devDependencies": {
     "@types/node": "^20.19.25",
-    "@types/react": "^19.2.6",
-    "@types/react-native": "^0.72.8",
-    "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   },
   "files": [
@@ -47,9 +44,5 @@
   ],
   "engines": {
     "node": ">=14.0.0"
-  },
-  "dependencies": {
-    "react": "^19.2.0",
-    "react-native": "^0.82.1"
   }
 }
