@@ -1,0 +1,22 @@
+{
+  "ignore": [
+    "node_modules/**",
+    "**/*.test.*",
+    "**/*.spec.*",
+    "dist/**",
+    "build/**",
+    "coverage/**",
+    "**/__tests__/**",
+    "**/__mocks__/**",
+    "**/*.stories.*"
+  ],
+  "extensions": [".tsx", ".ts", ".jsx", ".js"],
+  "autoFix": false,
+  "backup": true,
+  "checkGit": true,
+  "dryRun": false,
+  "thresholds": {
+    "maxStylesPerFile": 50,
+    "minUsageRate": 80
+  }
+}
